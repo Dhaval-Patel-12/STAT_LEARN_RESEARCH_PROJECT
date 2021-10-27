@@ -53,3 +53,6 @@ for (i in 1:n){
 }
 RMSE
 }
+
+out <- XGB_Model(med_prem_data)
+mean(out)
