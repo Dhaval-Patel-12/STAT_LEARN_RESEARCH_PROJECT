@@ -1,0 +1,55 @@
+################################### Functions simulation ###########################################
+####################################################################################################
+
+####Data import
+path <- file.choose()
+med_prem_data <- fread(path,header = T)
+med_prem_data_indp <- med_prem_data %>% select(-PremiumPrice)
+
+####Check structure of variables
+str(med_prem_data)
+
+##############################Function for similuation MCAR using XGBOOST#############################
+
+XGB_Model <- function(data){
+
+n=200
+i=0
+RMSE = c()
+for (i in 1:n){
+
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+
+    miss_data <- delete_MCAR(data,
+                        p=runif(1,0,0.5),
+                        cols_mis = col_miss_vect,
+                        stochastic = TRUE)
+
+    ntrain=round(0.7*nrow(data), digits = 0)
+    ntest=nrow(data)-ntrain
+    indtrain=sample(1:nrow(data),ntrain)
+    data_train=data[indtrain,]
+    data_test=data[-indtrain,]
+    
+    xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                                label = data_train$PremiumPrice, 
+                                objective = "reg:squarederror", 
+                                eval_metric = "rmse",
+                                max.depth =6, 
+                                eta = 0.05, 
+                                nround = 100, 
+                                subsample = 0.6, 
+                                colsample_bytree = 0.7, 
+                                nthread = 3,
+                                min_child_weight = 0.8,
+                                gamma =1
+                                )
+    
+    xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+}
+RMSE
+}
