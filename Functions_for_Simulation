@@ -56,3 +56,41 @@ RMSE
 
 out <- XGB_Model(med_prem_data)
 mean(out)
+
+##############################Function for similuation MCAR using RandomForest #############################
+
+
+RF_Model_MCAR <- function(data){
+  
+  set.seed(20606)
+  n=200
+  i=0
+  RMSE = c()
+  for (i in 1:n){
+    
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+    ntrain=round(0.7*nrow(data), digits = 0)
+    ntest=nrow(data)-ntrain
+    indtrain=sample(1:nrow(data),ntrain)
+    data_train=data[indtrain,]
+    data_test=data[-indtrain,]
+    
+    rf1=randomForest(PremiumPrice~.,data=data_train)
+    
+    rf1_model_pred <- predict(rf1, newdata=data_test[,-11], class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - rf1_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out2 <- RF_Model_MCAR(med_prem_data)
+mean(out2)
