@@ -390,4 +390,135 @@ mean(out_MAR_RF)
 
 ##################################Baseline RF Model ##############################################
 
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+
+set.seed(1212)
+ntrain=round(0.7*nrow(med_prem_data_factor), digits = 0)
+ntest=nrow(med_prem_data_factor)-ntrain
+indtrain=sample(1:nrow(med_prem_data_factor),ntrain)
+data_train=med_prem_data_factor[indtrain,]
+data_test=med_prem_data_factor[-indtrain,]
+
+set.seed(1212)
+Linear_Model_03=glm(PremiumPrice~.,family="gaussian",data=data_train)
+Prediction_03=predict(Linear_Model_03,newdata=data_test,type="response")
+
+sqrt(mean((data_test$PremiumPrice - Prediction_03)^2))
+
+#RMSE: 3824.856
+
+##############################Function for similuation MCAR using GLM #############################
+
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+GLM_Model_MCAR <- function(data){
+  
+  
+  n=500
+  i=0
+  RMSE = c()
+  for (i in 1:n){
+    
+    set.seed(NULL)
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+    miss_date_fix <- impute_mean(miss_data, type = "columnwise")
+    
+    set.seed(1212)
+    ntrain=round(0.7*nrow(miss_data_fix), digits = 0)
+    ntest=nrow(miss_data_fix)-ntrain
+    indtrain=sample(1:nrow(miss_data_fix),ntrain)
+    data_train=miss_data_fix[indtrain,]
+    data_test=miss_data_fix[-indtrain,]
+    
+    set.seed(1212)
+    GLM=glm(PremiumPrice~.,family="gaussian",data=data_train)
+    
+    GLM_Pred <- predict(GLM, newdata=data_test[,-11], class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - GLM_Pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MCAR_GLM <- RF_Model_MCAR(med_prem_data_factor)
+mean(out_MCAR_GLM)
+
+#RMSE: 3617.803
+
+##############################Function for similuation MAR using GLM #############################
+
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+GLM_Model_MAR <- function(data){
+  
+  
+  n=500
+  i=0
+  RMSE = c()
+  for (i in 1:n){
+    
+    set.seed(NULL)
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    miss_date_fix <- impute_mean(miss_data, type = "columnwise")
+    
+    set.seed(1212)
+    ntrain=round(0.7*nrow(miss_data_fix), digits = 0)
+    ntest=nrow(miss_data_fix)-ntrain
+    indtrain=sample(1:nrow(miss_data_fix),ntrain)
+    data_train=miss_data_fix[indtrain,]
+    data_test=miss_data_fix[-indtrain,]
+    
+    set.seed(1212)
+    GLM=glm(PremiumPrice~.,family="gaussian",data=data_train)
+    
+    GLM_Pred <- predict(GLM, newdata=data_test[,-11], class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - GLM_Pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_GLM <- RF_Model_MCAR(med_prem_data_factor)
+mean(out_MAR_GLM)
+
+#RMSE:3596.6
+
+
+
+
+
+
 
