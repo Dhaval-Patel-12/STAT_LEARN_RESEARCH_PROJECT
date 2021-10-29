@@ -1,69 +1,287 @@
-################################### Functions simulation ###########################################
-####################################################################################################
+##########################################################################################
+############################### adding missing data ######################################
+##########################################################################################
 
-####Data import
+################################# Data Exploration #######################################
+##########################################################################################
+
+library(data.table)
+library(dplyr)
+library(missMethods)
+library(xgboost)
+library(caret)
+library(randomForest)
+
 path <- file.choose()
 med_prem_data <- fread(path,header = T)
-med_prem_data_indp <- med_prem_data %>% select(-PremiumPrice)
 
-####Check structure of variables
+summary(med_prem_data)
 str(med_prem_data)
 
-##############################Function for similuation MCAR using XGBOOST#############################
+colnames(med_prem_data)
+unique(med_prem_data$Age)
+unique(med_prem_data$HistoryOfCancerInFamily)
+unique(med_prem_data$Diabetes)
+unique(med_prem_data$BloodPressureProblems)
+unique(med_prem_data$AnyTransplants)
+unique(med_prem_data$AnyChronicDiseases)
+unique(med_prem_data$Height)
+unique(med_prem_data$Weight)
+unique(med_prem_data$KnownAllergies)
+unique(med_prem_data$NumberOfMajorSurgeries)
 
-XGB_Model <- function(data){
 
-n=200
-i=0
-RMSE = c()
-for (i in 1:n){
+############################ Testing #####################################
+##########################################################################
 
-    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+col_miss_vect <- colnames(med_prem_data %>% select(sample(1:10,sample(1:5,1)))) 
 
-    miss_data <- delete_MCAR(data,
-                        p=runif(1,0,0.5),
-                        cols_mis = col_miss_vect,
-                        stochastic = TRUE)
+miss_data <- delete_MCAR(med_prem_data,
+                         p=runif(1,0,0.25),
+                         cols_mis = col_miss_vect,
+                         stochastic = TRUE)
 
-    ntrain=round(0.7*nrow(data), digits = 0)
-    ntest=nrow(data)-ntrain
-    indtrain=sample(1:nrow(data),ntrain)
-    data_train=data[indtrain,]
-    data_test=data[-indtrain,]
+ntrain=round(0.8*nrow(miss_data), digits = 0)
+ntest=nrow(miss_data)-ntrain
+indtrain=sample(1:nrow(miss_data),ntrain)
+data_train=miss_data[indtrain,]
+data_test=miss_data[-indtrain,]
+
+###################
+cv.control <- trainControl(method = "cv",
+                           number=5,
+                           allowParallel = T,
+                           verboseIter = T)
+
+boosting_grid <- expand.grid(nrounds=c(25,50,75,100),
+                             max_depth= c(3,4,5,6,7,8),
+                             eta= c(0.05,0.1,0.15,0.2),
+                             gamma = c(0,1),
+                             colsample_bytree = c(0.5,0.6,0.7),
+                             subsample = c(0.4,0.5,0.6),
+                             min_child_weight = c(0.2,0.4,0.6,0.8,1)
+)
+
+set.seed(1212)
+xgb_tune <- train(x=data.matrix(data_train[,-11]),
+                  y= data_train$PremiumPrice,
+                  method= "xgbTree",
+                  trControl = cv.control,
+                  tuneGrid = boosting_grid,
+                  verbose = T,
+                  metric = "RMSE",
+                  nthread = 3
+)
+summary(xgb_tune)
+xgb_tune$bestTune
+
+#########################################
+xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                           label = data_train$PremiumPrice, 
+                           objective = "reg:squarederror", 
+                           eval_metric = "rmse",
+                           max.depth =6, 
+                           eta = 0.05, 
+                           nround = 100, 
+                           subsample = 0.6, 
+                           colsample_bytree = 0.7, 
+                           nthread = 3,
+                           min_child_weight = 0.8,
+                           gamma =1
+)
+summary(xgb_model_train)
+xgb_model_train[["feature_names"]]
+head(med_prem_data$PremiumPrice)
+
+xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+
+for(i in 1:n){
+  print(runif(1))
+  i+1
+}
+
+colnames(ntrain[,-11])
+colnames(ntrain)
+sum(is.na(miss_data$Height))
+sum(is.na(miss_data$Weight))
+
+
+################################### Baseline and Simulation models#####################################
+#######################################################################################################
+
+##################################Baseline XGboost Model ##############################################
+set.seed(1212)
+ntrain=round(0.8*nrow(med_prem_data), digits = 0)
+ntest=nrow(med_prem_data)-ntrain
+indtrain=sample(1:nrow(med_prem_data),ntrain)
+data_train=med_prem_data[indtrain,]
+data_test=med_prem_data[-indtrain,]
+
+
+cv.control <- trainControl(method = "cv",
+                           number=4,
+                           allowParallel = T,
+                           verboseIter = T)
+
+boosting_grid <- expand.grid(nrounds=c(25,50,75,100),
+                             max_depth= c(3,4,5,6,7,8),
+                             eta= c(0.05,0.1,0.15,0.2),
+                             gamma = c(0,1),
+                             colsample_bytree = c(0.5,0.6,0.7),
+                             subsample = c(0.4,0.5,0.6),
+                             min_child_weight = c(0.2,0.4,0.6,0.8,1)
+)
+
+set.seed(1212)
+xgb_tune <- train(x=data.matrix(data_train[,-11]),
+                  y= data_train$PremiumPrice,
+                  method= "xgbTree",
+                  trControl = cv.control,
+                  tuneGrid = boosting_grid,
+                  verbose = T,
+                  metric = "RMSE",
+                  nthread = 3
+)
+summary(xgb_tune)
+xgb_tune$bestTune
+
+set.seed(1212)
+xgb_model_Baseline <- xgboost(data =data.matrix(data_train[,-11]), 
+                           label = data_train$PremiumPrice, 
+                           objective = "reg:squarederror", 
+                           eval_metric = "rmse",
+                           max.depth =7, 
+                           eta = 0.1, 
+                           nround = 75, 
+                           subsample = 0.6, 
+                           colsample_bytree = 0.7, 
+                           nthread = 3,
+                           min_child_weight = 0.4,
+                           gamma =0
+)
+
+xgb_Baseline_pred <- predict(xgb_model_Baseline, newdata=data.matrix(data_test[,-11]), class= "response")
+sqrt(mean((data_test$PremiumPrice - xgb_Baseline_pred)^2))
+
+#RMSE with tuned model is 2910.775
+
+##############################Function for similuation MCAR using XGboost #############################
+XGB_Model_MCAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  for (i in 1:n){
     
+    set.seed(NULL)
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+    set.seed(1212)
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    set.seed(1212)
     xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
-                                label = data_train$PremiumPrice, 
-                                objective = "reg:squarederror", 
-                                eval_metric = "rmse",
-                                max.depth =6, 
-                                eta = 0.05, 
-                                nround = 100, 
-                                subsample = 0.6, 
-                                colsample_bytree = 0.7, 
-                                nthread = 3,
-                                min_child_weight = 0.8,
-                                gamma =1
-                                )
+                               label = data_train$PremiumPrice, 
+                               objective = "reg:squarederror", 
+                               eval_metric = "rmse",
+                               max.depth =6, 
+                               eta = 0.05, 
+                               nround = 100, 
+                               subsample = 0.6, 
+                               colsample_bytree = 0.7, 
+                               nthread = 3,
+                               min_child_weight = 0.8,
+                               gamma =1
+    )
     
     xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
     error = sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
     
     RMSE= c(RMSE, error)
     i+1
-}
-RMSE
+  }
+  RMSE
 }
 
-out <- XGB_Model(med_prem_data)
-mean(out)
+out_MCAR_xgboost <- XGB_Model_MCAR(med_prem_data)
+mean(out_MCAR_xgboost)
+
+#RMSE : 2751.249
+
+##############################Function for similuation MAR using XGboost #############################
+XGB_Model_MAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  for (i in 1:n){
+    
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                               label = data_train$PremiumPrice, 
+                               objective = "reg:squarederror", 
+                               eval_metric = "rmse",
+                               max.depth =6, 
+                               eta = 0.05, 
+                               nround = 100, 
+                               subsample = 0.6, 
+                               colsample_bytree = 0.7, 
+                               nthread = 3,
+                               min_child_weight = 0.8,
+                               gamma =1
+    )
+    
+    xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_xgboost <- XGB_Model_MAR(med_prem_data)
+mean(out_MAR_xgboost)
+
+
+##################################Baseline RF Model ##############################################
+
+
 
 ##############################Function for similuation MCAR using RandomForest #############################
-
-
 RF_Model_MCAR <- function(data){
   
-  set.seed(20606)
-  n=200
+  
+  n=500
   i=0
   RMSE = c()
   for (i in 1:n){
@@ -75,12 +293,15 @@ RF_Model_MCAR <- function(data){
                              cols_mis = col_miss_vect,
                              stochastic = TRUE)
     
-    ntrain=round(0.7*nrow(data), digits = 0)
-    ntest=nrow(data)-ntrain
-    indtrain=sample(1:nrow(data),ntrain)
-    data_train=data[indtrain,]
-    data_test=data[-indtrain,]
+    miss_data_fix <- na.roughfix(miss_data)
     
+    ntrain=round(0.7*nrow(miss_data_fix), digits = 0)
+    ntest=nrow(miss_data_fix)-ntrain
+    indtrain=sample(1:nrow(miss_data_fix),ntrain)
+    data_train=miss_data_fix[indtrain,]
+    data_test=miss_data_fix[-indtrain,]
+    
+    set.seed(20606)
     rf1=randomForest(PremiumPrice~.,data=data_train)
     
     rf1_model_pred <- predict(rf1, newdata=data_test[,-11], class= "response")
@@ -92,5 +313,54 @@ RF_Model_MCAR <- function(data){
   RMSE
 }
 
-out2 <- RF_Model_MCAR(med_prem_data)
-mean(out2)
+out_MCAR_RF <- RF_Model_MCAR(med_prem_data)
+mean(out_MCAR_RF)
+
+####################################
+
+RF_Model_MAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  for (i in 1:n){
+    
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    miss_data_fix <- na.roughfix(miss_data)
+    
+    ntrain=round(0.7*nrow(miss_data_fix), digits = 0)
+    ntest=nrow(miss_data_fix)-ntrain
+    indtrain=sample(1:nrow(miss_data_fix),ntrain)
+    data_train=miss_data_fix[indtrain,]
+    data_test=miss_data_fix[-indtrain,]
+    
+    set.seed(20606)
+    rf2=randomForest(PremiumPrice~.,data=data_train)
+    
+    rf2_model_pred <- predict(rf2, newdata=data_test[,-11], class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - rf2_model_pred)^2))
+    
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_RF <- XGB_Model_MAR(med_prem_data)
+mean(out_MAR_RF)
+
+
