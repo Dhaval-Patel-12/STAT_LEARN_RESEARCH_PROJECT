@@ -1,0 +1,528 @@
+##########################################################################################
+############################### adding missing data ######################################
+##########################################################################################
+
+################################# Data Exploration #######################################
+##########################################################################################
+
+library(data.table)
+library(dplyr)
+library(missMethods)
+library(xgboost)
+library(caret)
+library(randomForest)
+install.packages('xgboost')
+
+path <- file.choose()
+med_prem_data <- fread(path,header = T)
+
+summary(med_prem_data)
+str(med_prem_data)
+
+colnames(med_prem_data)
+unique(med_prem_data$Age)
+unique(med_prem_data$HistoryOfCancerInFamily)
+unique(med_prem_data$Diabetes)
+unique(med_prem_data$BloodPressureProblems)
+unique(med_prem_data$AnyTransplants)
+unique(med_prem_data$AnyChronicDiseases)
+unique(med_prem_data$Height)
+unique(med_prem_data$Weight)
+unique(med_prem_data$KnownAllergies)
+unique(med_prem_data$NumberOfMajorSurgeries)
+
+
+############################ Testing #####################################
+##########################################################################
+
+col_miss_vect <- colnames(med_prem_data %>% select(sample(1:10,sample(1:5,1)))) 
+
+miss_data <- delete_MCAR(med_prem_data,
+                         p=runif(1,0,0.25),
+                         cols_mis = col_miss_vect,
+                         stochastic = TRUE)
+
+ntrain=round(0.8*nrow(miss_data), digits = 0)
+ntest=nrow(miss_data)-ntrain
+indtrain=sample(1:nrow(miss_data),ntrain)
+data_train=miss_data[indtrain,]
+data_test=miss_data[-indtrain,]
+
+###################
+cv.control <- trainControl(method = "cv",
+                           number=5,
+                           allowParallel = T,
+                           verboseIter = T)
+
+boosting_grid <- expand.grid(nrounds=c(25,50,75,100),
+                             max_depth= c(3,4,5,6,7,8),
+                             eta= c(0.05,0.1,0.15,0.2),
+                             gamma = c(0,1),
+                             colsample_bytree = c(0.5,0.6,0.7),
+                             subsample = c(0.4,0.5,0.6),
+                             min_child_weight = c(0.2,0.4,0.6,0.8,1)
+)
+
+set.seed(1212)
+xgb_tune <- train(x=data.matrix(data_train[,-11]),
+                  y= data_train$PremiumPrice,
+                  method= "xgbTree",
+                  trControl = cv.control,
+                  tuneGrid = boosting_grid,
+                  verbose = T,
+                  metric = "RMSE",
+                  nthread = 3
+)
+summary(xgb_tune)
+xgb_tune$bestTune
+
+#########################################
+xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                           label = data_train$PremiumPrice, 
+                           objective = "reg:squarederror", 
+                           eval_metric = "rmse",
+                           max.depth =6, 
+                           eta = 0.05, 
+                           nround = 100, 
+                           subsample = 0.6, 
+                           colsample_bytree = 0.7, 
+                           nthread = 3,
+                           min_child_weight = 0.8,
+                           gamma =1
+)
+summary(xgb_model_train)
+xgb_model_train[["feature_names"]]
+head(med_prem_data$PremiumPrice)
+
+xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+
+for(i in 1:n){
+  print(runif(1))
+  i+1
+}
+
+colnames(ntrain[,-11])
+colnames(ntrain)
+sum(is.na(miss_data$Height))
+sum(is.na(miss_data$Weight))
+
+
+################################### Baseline and Simulation models#####################################
+#######################################################################################################
+
+##################################Baseline XGboost Model ##############################################
+set.seed(1212)
+ntrain=round(0.7*nrow(med_prem_data), digits = 0)
+ntest=nrow(med_prem_data)-ntrain
+indtrain=sample(1:nrow(med_prem_data),ntrain)
+data_train=med_prem_data[indtrain,]
+data_test=med_prem_data[-indtrain,]
+
+
+cv.control <- trainControl(method = "cv",
+                           number=4,
+                           allowParallel = T,
+                           verboseIter = T)
+
+boosting_grid <- expand.grid(nrounds=c(25,50,75,100),
+                             max_depth= c(3,4,5,6,7,8),
+                             eta= c(0.05,0.1,0.15,0.2),
+                             gamma = c(0,1),
+                             colsample_bytree = c(0.5,0.6,0.7),
+                             subsample = c(0.4,0.5,0.6),
+                             min_child_weight = c(0.2,0.4,0.6,0.8,1)
+)
+
+set.seed(1212)
+xgb_tune <- train(x=data.matrix(data_train[,-11]),
+                  y= data_train$PremiumPrice,
+                  method= "xgbTree",
+                  trControl = cv.control,
+                  tuneGrid = boosting_grid,
+                  verbose = T,
+                  metric = "RMSE",
+                  nthread = 3
+)
+summary(xgb_tune)
+xgb_tune$bestTune
+
+set.seed(1212)
+xgb_model_Baseline <- xgboost(data =data.matrix(data_train[,-11]), 
+                              label = data_train$PremiumPrice, 
+                              objective = "reg:squarederror", 
+                              eval_metric = "rmse",
+                              max.depth =5, 
+                              eta = 0.1, 
+                              nround = 75, 
+                              subsample = 0.5, 
+                              colsample_bytree = 0.7, 
+                              nthread = 3,
+                              min_child_weight = 0.8,
+                              gamma =0
+)
+
+xgb_Baseline_pred <- predict(xgb_model_Baseline, newdata=data.matrix(data_test[,-11]), class= "response")
+sqrt(mean((data_test$PremiumPrice - xgb_Baseline_pred)^2))
+
+#RMSE with tuned model is 3111.762
+
+##############################Function for similuation MCAR using XGboost #############################
+XGB_Model_MCAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    
+    xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                               label = data_train$PremiumPrice, 
+                               objective = "reg:squarederror", 
+                               eval_metric = "rmse",
+                               max.depth =6, 
+                               eta = 0.05, 
+                               nround = 100, 
+                               subsample = 0.6, 
+                               colsample_bytree = 0.7, 
+                               nthread = 3,
+                               min_child_weight = 0.8,
+                               gamma =1
+    )
+    
+    xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MCAR_xgboost <- XGB_Model_MCAR(med_prem_data)
+out_MCAR_xgboost_2 <- XGB_Model_MCAR(med_prem_data)
+
+mean(out_MCAR_xgboost)
+
+#RMSE : 3364.888
+
+##############################Function for similuation MAR using XGboost #############################
+XGB_Model_MAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    
+    xgb_model_train <- xgboost(data =data.matrix(data_train[,-11]), 
+                               label = data_train$PremiumPrice, 
+                               objective = "reg:squarederror", 
+                               eval_metric = "rmse",
+                               max.depth =6, 
+                               eta = 0.05, 
+                               nround = 100, 
+                               subsample = 0.6, 
+                               colsample_bytree = 0.7, 
+                               nthread = 3,
+                               min_child_weight = 0.8,
+                               gamma =1
+    )
+    
+    xgb_model_pred <- predict(xgb_model_train, newdata=data.matrix(data_test[,-11]), class= "response")
+    error = sqrt(mean((data_test$PremiumPrice - xgb_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_xgboost <- XGB_Model_MAR(med_prem_data)
+mean(out_MAR_xgboost)
+
+#RMSE 3396.955
+
+##################################Baseline RF Model ##############################################
+
+set.seed(1212)
+ntrain=round(0.7*nrow(med_prem_data), digits = 0)
+ntest=nrow(med_prem_data)-ntrain
+indtrain=sample(1:nrow(med_prem_data),ntrain)
+data_train=med_prem_data[indtrain,]
+data_test=med_prem_data[-indtrain,]
+
+set.seed(1212)
+rf_model_Baseline =randomForest(PremiumPrice~.,data=data_train)
+
+rf_Baseline_pred <- predict(rf_model_Baseline, newdata=data_test[,-11], class= "response")
+sqrt(mean((data_test$PremiumPrice - rf_Baseline_pred)^2))
+
+#RMSE:3279.149
+##############################Function for similuation MCAR using RandomForest #############################
+RF_Model_MCAR <- function(data){
+  
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+   
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    miss_data_fix_train <- na.roughfix(data_train)
+    miss_data_fix_test <- na.roughfix(data_test)
+    
+    rf1=randomForest(PremiumPrice~.,data=miss_data_fix_train)
+    
+    rf1_model_pred <- predict(rf1, newdata=miss_data_fix_test[,-11], class= "response")
+    error = sqrt(mean((miss_data_fix_test$PremiumPrice - rf1_model_pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MCAR_RF <- RF_Model_MCAR(med_prem_data)
+mean(out_MCAR_RF)
+
+#RMSE: 3402.596
+
+##############################Function for similuation MAR using RandomForest #############################
+RF_Model_MAR <- function(data){
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    miss_data_fix_train <- na.roughfix(data_train)
+    miss_data_fix_test <- na.roughfix(data_test)
+    
+    rf2=randomForest(PremiumPrice~.,data=miss_data_fix_train)
+    
+    rf2_model_pred <- predict(rf2, newdata=miss_data_fix_test[,-11], class= "response")
+    error = sqrt(mean((miss_data_fix_test$PremiumPrice - rf2_model_pred)^2))
+    
+    
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_RF <- RF_Model_MAR(med_prem_data)
+mean(out_MAR_RF)
+
+#RMSE: 3403.072
+
+##################################Baseline GLM Model ##############################################
+
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+
+set.seed(1212)
+ntrain=round(0.7*nrow(med_prem_data_factor), digits = 0)
+ntest=nrow(med_prem_data_factor)-ntrain
+indtrain=sample(1:nrow(med_prem_data_factor),ntrain)
+data_train=med_prem_data_factor[indtrain,]
+data_test=med_prem_data_factor[-indtrain,]
+
+Linear_Model_03=glm(PremiumPrice~.,family="gaussian",data=data_train)
+Prediction_03=predict(Linear_Model_03,newdata=data_test,type="response")
+
+sqrt(mean((data_test$PremiumPrice - Prediction_03)^2))
+
+#RMSE: 3824.856
+
+##############################Function for similuation MCAR using GLM #############################
+
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+GLM_Model_MCAR <- function(data){
+  
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    
+    col_miss_vect <-colnames(data %>% select(sample(1:10,sample(1:5,1))))     
+    
+    miss_data <- delete_MCAR(data,
+                             p=runif(1,0,0.5),
+                             cols_mis = col_miss_vect,
+                             stochastic = TRUE)
+    
+    
+    
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    
+    miss_data_fix_train <- impute_mode(data_train, type = "columnwise")
+    miss_data_fix_test <- impute_mode(data_test, type = "columnwise")
+    
+    
+    GLM=glm(PremiumPrice~.,family="gaussian",data=miss_data_fix_train)
+    
+    GLM_Pred <- predict(GLM, newdata=miss_data_fix_test[,-11], class= "response")
+    error = sqrt(mean((miss_data_fix_test$PremiumPrice - GLM_Pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MCAR_GLM <- GLM_Model_MCAR(med_prem_data_factor)
+mean(out_MCAR_GLM)
+
+#RMSE: 4068.95
+
+##############################Function for similuation MAR using GLM #############################
+
+med_prem_data_factor <- med_prem_data %>%
+  mutate(Diabetes=as.factor(Diabetes), BloodPressureProblems=as.factor(BloodPressureProblems),
+         AnyTransplants=as.factor(AnyTransplants), AnyChronicDiseases=as.factor(AnyChronicDiseases), 
+         KnownAllergies=as.factor(KnownAllergies), HistoryOfCancerInFamily=as.factor(HistoryOfCancerInFamily))
+
+GLM_Model_MAR <- function(data){
+  
+  
+  n=500
+  i=0
+  RMSE = c()
+  set.seed(1212)
+  for (i in 1:n){
+    
+    
+    full_index <- 1:10
+    col_miss_index <- sample(1:10,sample(1:5,1))
+    col_ctrl_index <- sample(setdiff(full_index,col_miss_index),length(col_miss_index))
+    
+    col_miss_vect <-colnames(data %>% select(col_miss_index)) 
+    col_ctrl_vect <-colnames(data %>% select(col_ctrl_index))
+    
+    miss_data <- delete_MAR_rank(data,
+                                 p=runif(1,0,0.5),
+                                 cols_mis = col_miss_vect,
+                                 cols_ctrl = col_ctrl_vect,
+                                 ties.method = "average",
+    )
+    
+    ntrain=round(0.7*nrow(miss_data), digits = 0)
+    ntest=nrow(miss_data)-ntrain
+    indtrain=sample(1:nrow(miss_data),ntrain)
+    data_train=miss_data[indtrain,]
+    data_test=miss_data[-indtrain,]
+    
+    
+    miss_data_fix_train <- impute_mode(data_train, type = "columnwise")
+    miss_data_fix_test <- impute_mode(data_test, type = "columnwise")
+    
+    
+    GLM2=glm(PremiumPrice~.,family="gaussian",data=miss_data_fix_train)
+    
+    GLM2_Pred <- predict(GLM2, newdata=miss_data_fix_test[,-11], class= "response")
+    error = sqrt(mean((miss_data_fix_test$PremiumPrice - GLM2_Pred)^2))
+    
+    RMSE= c(RMSE, error)
+    i+1
+  }
+  RMSE
+}
+
+out_MAR_GLM <- GLM_Model_MAR(med_prem_data_factor)
+mean(out_MAR_GLM)
+
+#RMSE:4111.972
+
+
